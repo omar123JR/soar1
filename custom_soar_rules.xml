@@ -1,0 +1,12 @@
+<group name="custom_soar,web,">
+  <rule id="100013" level="12">
+    <if_group>web|apache|nginx</if_group>
+    <match>sqlmap</match>
+    <description>CRITICAL: SQLMap Attack Tool Detected!</description>
+  </rule>
+  <rule id="100014" level="12">
+    <if_group>web|apache|nginx</if_group>
+    <match>etc/passwd|etc/shadow</match>
+    <description>CRITICAL: Path Traversal Attack Detected!</description>
+  </rule>
+</group>

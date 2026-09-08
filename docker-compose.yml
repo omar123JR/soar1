@@ -1,0 +1,141 @@
+services:
+  # ============================================================
+  # 1. محرك الفرز - النسخة الأولى (Backend Node 1)
+  # ============================================================
+  soar-backend-1:
+    build: ./engine
+    image: soar-backend-engine-image
+    container_name: soar_backend_1
+    # لا يوجد port binding خارجي - Nginx هو البوابة الوحيدة
+    expose:
+      - "8000"
+    networks:
+      - soar_internal_network
+    restart: unless-stopped
+
+  # ============================================================
+  # 2. محرك الفرز - النسخة الثانية (Backend Node 2)
+  # ============================================================
+  soar-backend-2:
+    build: ./engine
+    image: soar-backend-engine-image
+    container_name: soar_backend_2
+    # لا يوجد port binding خارجي - Nginx هو البوابة الوحيدة
+    expose:
+      - "8000"
+    networks:
+      - soar_internal_network
+    restart: unless-stopped
+
+  # ============================================================
+  # 3. واجهة العرض: لوحة التحكم (Frontend Dashboard)
+  # ============================================================
+  frontend-dashboard:
+    build: ./dashboard
+    image: soar-frontend-dashboard-image
+    container_name: soar_frontend_dashboard_container
+    ports:
+      - "8501:8501"
+    depends_on:
+      - soar-backend-1
+      - soar-backend-2
+    networks:
+      - soar_internal_network
+    restart: unless-stopped
+
+  # ============================================================
+  # 4. محاكي الهجمات: مولد السجلات (Log Emulator)
+  # ============================================================
+  log-emulator:
+    build: ./emulator
+    image: soar-log-emulator-image
+    container_name: soar_log_emulator_container
+    depends_on:
+      - soar-backend-1
+      - soar-backend-2
+    networks:
+      - soar_internal_network
+    restart: unless-stopped
+
+  # ============================================================
+  # 5. المراقبة اللحظية (Uptime Kuma)
+  # ============================================================
+  uptime-monitor:
+    image: louislam/uptime-kuma:1
+    container_name: uptime_kuma_monitor_container
+    ports:
+      - "3001:3001"
+    volumes:
+      - uptime_kuma_storage:/app/data
+    networks:
+      - soar_internal_network
+    restart: unless-stopped
+
+  # ============================================================
+  # 6. البوابة الرئيسية + موزع الحمل (Nginx Load Balancer)
+  # ============================================================
+  nginx-proxy:
+    image: nginx:latest
+    container_name: soar_nginx_proxy
+    ports:
+      - "80:80"       # Virtual hosts للوحة التحكم والمراقبة
+      - "8080:8080"   # مدخل Wazuh عبر Load Balancer
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+    networks:
+      - soar_internal_network
+    depends_on:
+      - soar-backend-1
+      - soar-backend-2
+      - frontend-dashboard
+      - uptime-monitor
+    restart: unless-stopped
+
+  # ============================================================
+  # 7. قاعدة بيانات الضحية (Target DB)
+  # ============================================================
+  victim-db:
+    image: mariadb:10.6
+    container_name: soar_victim_db
+    environment:
+      MYSQL_ROOT_PASSWORD: root_super_password
+      MYSQL_DATABASE: wordpress_db
+      MYSQL_USER: wp_user
+      MYSQL_PASSWORD: wp_password
+    networks:
+      - soar_internal_network
+    restart: unless-stopped
+
+  # ============================================================
+  # 8. الضحية (Target Victim) - للعرض التقديمي
+  # ============================================================
+  victim-wordpress:
+    image: wordpress:latest
+    container_name: soar_victim_wordpress
+    ports:
+      - "8084:80"
+    environment:
+      WORDPRESS_DB_HOST: victim-db:3306
+      WORDPRESS_DB_NAME: wordpress_db
+      WORDPRESS_DB_USER: wp_user
+      WORDPRESS_DB_PASSWORD: wp_password
+    networks:
+      - soar_internal_network
+    depends_on:
+      - victim-db
+    restart: unless-stopped
+
+# ============================================================
+# تعريف الشبكة الداخلية المعزولة
+# ============================================================
+networks:
+  soar_internal_network:
+    name: soar_internal_network
+    driver: bridge
+
+# ============================================================
+# تعريف مساحة التخزين الدائمة
+# ============================================================
+volumes:
+  uptime_kuma_storage:
+    name: uptime_kuma_storage
